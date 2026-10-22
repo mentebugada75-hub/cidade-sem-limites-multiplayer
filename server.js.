@@ -1,0 +1,85 @@
+
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
+
+const PORT = process.env.PORT || 10000;
+const MAX_PLAYERS = 30;
+const rooms = new Map();
+let nextRoom = 1;
+
+app.get("/", (req, res) => {
+  res.send("CIDADE SEM LIMITES RP - Servidor online");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ online: true, rooms: rooms.size });
+});
+
+function findRoom() {
+  for (const [id, players] of rooms) {
+    if (players.size < MAX_PLAYERS) return id;
+  }
+  const id = `cidade-${nextRoom++}`;
+  rooms.set(id, new Map());
+  return id;
+}
+
+io.on("connection", (socket) => {
+  const roomId = findRoom();
+  socket.join(roomId);
+  socket.data.roomId = roomId;
+
+  const player = {
+    id: socket.id,
+    name: `Jogador-${socket.id.slice(0, 4)}`,
+    x: 0,
+    y: 0,
+    z: 0
+  };
+
+  const players = rooms.get(roomId);
+  players.set(socket.id, player);
+
+  socket.emit("welcome", {
+    id: socket.id,
+    room: roomId,
+    maxPlayers: MAX_PLAYERS,
+    players: Array.from(players.values())
+  });
+
+  socket.to(roomId).emit("playerJoined", player);
+
+  socket.on("move", (position) => {
+    if (!position || typeof position !== "object") return;
+    const { x, y, z } = position;
+    if (![x, y, z].every(Number.isFinite)) return;
+    if ([x, y, z].some(v => Math.abs(v) > 100000)) return;
+
+    const current = rooms.get(roomId)?.get(socket.id);
+    if (!current) return;
+
+    Object.assign(current, { x, y, z });
+    socket.to(roomId).emit("playerMoved", {
+      id: socket.id, x, y, z
+    });
+  });
+
+  socket.on("disconnect", () => {
+    const currentRoom = rooms.get(roomId);
+    if (!currentRoom) return;
+    currentRoom.delete(socket.id);
+    io.to(roomId).emit("playerLeft", socket.id);
+    if (currentRoom.size === 0) rooms.delete(roomId);
+  });
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Servidor a funcionar na porta ${PORT}`);
+});
