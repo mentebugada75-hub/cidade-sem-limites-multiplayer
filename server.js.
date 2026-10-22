@@ -1,7 +1,14 @@
-
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+
+process.on("uncaughtException", (err) => {
+  console.error("ERRO NAO TRATADO:", err);
+  process.exit(1);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("PROMISE REJEITADA:", err);
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -9,7 +16,7 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = Number(process.env.PORT) || 10000;
 const MAX_PLAYERS = 30;
 const rooms = new Map();
 let nextRoom = 1;
@@ -60,15 +67,13 @@ io.on("connection", (socket) => {
     if (!position || typeof position !== "object") return;
     const { x, y, z } = position;
     if (![x, y, z].every(Number.isFinite)) return;
-    if ([x, y, z].some(v => Math.abs(v) > 100000)) return;
+    if ([x, y, z].some((v) => Math.abs(v) > 100000)) return;
 
     const current = rooms.get(roomId)?.get(socket.id);
     if (!current) return;
 
     Object.assign(current, { x, y, z });
-    socket.to(roomId).emit("playerMoved", {
-      id: socket.id, x, y, z
-    });
+    socket.to(roomId).emit("playerMoved", { id: socket.id, x, y, z });
   });
 
   socket.on("disconnect", () => {
@@ -80,6 +85,13 @@ io.on("connection", (socket) => {
   });
 });
 
+server.on("error", (err) => {
+  console.error("ERRO NO SERVIDOR HTTP:", err);
+  process.exit(1);
+});
+
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Servidor a funcionar na porta ${PORT}`);
+  console.log(`[v2] Servidor a funcionar na porta ${PORT}`);
+  console.log(`[v2] process.env.PORT = ${process.env.PORT}`);
+  console.log(`[v2] Node ${process.version}`);
 });
